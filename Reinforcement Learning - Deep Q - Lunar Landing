@@ -1,0 +1,286 @@
+#1 - Import Packages
+
+#numpy is a package for scientific computing in python.
+#deque will be our data structure for our memory buffer.
+#namedtuple will be used to store the experience tuples.
+#The gym toolkit is a collection of environments that can be used to test reinforcement learning algorithms. We should note that in this notebook we are using gym version 0.24.0.
+#PIL.Image and pyvirtualdisplay are needed to render the Lunar Lander environment.
+#We will use several modules from the tensorflow.keras framework for building deep learning models.
+#utils is a module that contains helper functions for this assignment. You do not need to modify the code in this file.
+
+import time
+from collections import deque, namedtuple
+import gym
+import numpy as np
+import PIL.Image
+import tensorflow as tf
+import utils
+from pyvirtualdisplay import Display
+from tensorflow.keras import Sequential
+from tensorflow.keras.layers import Dense, Input
+from tensorflow.keras.losses import MSE
+from tensorflow.keras.optimizers import Adam
+# Set up a virtual display to render the Lunar Lander environment.
+Display(visible=0, size=(840, 480)).start();
+​
+# Set the random seed for TensorFlow.
+tf.random.set_seed(utils.SEED)
+
+Run the cell below to set the hyperparameters.
+MEMORY_SIZE = 100_000     # size of memory buffer.
+GAMMA = 0.995             # discount factor.
+ALPHA = 1e-3              # learning rate.
+NUM_STEPS_FOR_UPDATE = 4  # perform a learning update every C time steps.
+
+3 - The Lunar Lander Environment
+In this notebook we will be using OpenAI's Gym Library. The Gym library provides a wide variety of environments for reinforcement learning. 
+To put it simply, an environment represents a problem or task to be solved. In this notebook, we will try to solve the Lunar 
+Lander environment using reinforcement learning.
+
+The goal of the Lunar Lander environment is to land the lunar lander safely on the landing pad on the surface of the moon. 
+The landing pad is designated by two flag poles and it is always at coordinates (0,0) but the lander is also allowed to land outside of the landing pad. 
+The lander starts at the top center of the environment with a random initial force applied to its center of mass and has infinite fuel.
+The environment is considered solved if you get 200 points.
+
+.1 Action Space
+The agent has four discrete actions available:
+
+Do nothing.
+Fire right engine.
+Fire main engine.
+Fire left engine.
+Each action has a corresponding numerical value:
+
+Do nothing = 0
+Fire right engine = 1
+Fire main engine = 2
+Fire left engine = 3
+
+3.2 Observation Space
+The agent's observation space consists of a state vector with 8 variables:
+
+Its  (𝑥,𝑦)  coordinates. The landing pad is always at coordinates  (0,0) .
+Its linear velocities  (𝑥˙,𝑦˙) .
+Its angle  𝜃 .
+Its angular velocity  𝜃˙ .
+Two booleans,  𝑙  and  𝑟 , that represent whether each leg is in contact with the ground or not.
+
+3.3 Rewards
+The Lunar Lander environment has the following reward system:
+
+Landing on the landing pad and coming to rest is about 100-140 points.
+If the lander moves away from the landing pad, it loses reward.
+If the lander crashes, it receives -100 points.
+If the lander comes to rest, it receives +100 points.
+Each leg with ground contact is +10 points.
+Firing the main engine is -0.3 points each frame.
+Firing the side engine is -0.03 points each frame.
+
+3.4 Episode Termination
+An episode ends (i.e the environment enters a terminal state) if:
+
+The lunar lander crashes (i.e if the body of the lunar lander comes in contact with the surface of the moon).
+
+The absolute value of the lander's  𝑥 -coordinate is greater than 1 (i.e. it goes beyond the left or right border)
+
+You can check out the Open AI Gym documentation for a full description of the environment.
+
+
+4 - Load the Environment
+We start by loading the LunarLander-v2 environment from the gym library by using the .make() method. LunarLander-v2 is the latest version of the Lunar Lander environment and you can read about its version history in the Open AI Gym documentation.
+
+env = gym.make('LunarLander-v2')
+Once we load the environment we use the .reset() method to reset the environment to the initial state. The lander starts at the top center of the environment and we can render the first frame of the environment by using the .render() method.
+
+env.reset()
+PIL.Image.fromarray(env.render(mode='rgb_array'))
+
+In order to build our neural network later on we need to know the size of the state vector and the number of valid actions. We can get this information from our environment by using the .observation_space.shape and action_space.n methods, respectively.
+
+state_size = env.observation_space.shape
+num_actions = env.action_space.n
+​
+print('State Shape:', state_size)
+print('Number of actions:', num_actions)
+
+In order to build our neural network later on we need to know the size of the state vector and the number of valid actions. We can get this information from our environment by using the .observation_space.shape and action_space.n methods, respectively.
+
+state_size = env.observation_space.shape
+num_actions = env.action_space.n
+​
+print('State Shape:', state_size)
+print('Number of actions:', num_actions)
+
+In this exercise you will create the  𝑄  and target  𝑄̂   networks and set the optimizer. Remember that the Deep  𝑄 -Network (DQN) is a neural network that approximates the action-value function  𝑄(𝑠,𝑎)≈𝑄∗(𝑠,𝑎) . It does this by learning how to map states to  𝑄  values.
+
+To solve the Lunar Lander environment, we are going to employ a DQN with the following architecture:
+
+An Input layer that takes state_size as input.
+
+A Dense layer with 64 units and a relu activation function.
+
+A Dense layer with 64 units and a relu activation function.
+
+A Dense layer with num_actions units and a linear activation function. This will be the output layer of our network.
+
+In the cell below you should create the  𝑄 -Network and the target  𝑄̂  -Network using the model architecture described above. Remember that both the  𝑄 -Network and the target  𝑄̂  -Network have the same architecture.
+
+Lastly, you should set Adam as the optimizer with a learning rate equal to ALPHA. Recall that ALPHA was defined in the Hyperparameters section. We should note that for this exercise you should use the already imported packages:
+
+from tensorflow.keras.layers import Dense, Input
+from tensorflow.keras.optimizers import Adam
+# UNQ_C1
+# GRADED CELL
+​
+# Create the Q-Network.
+q_network = Sequential([
+    ### START CODE HERE ### 
+    Input(shape=state_size),                      
+    Dense(units=64, activation='relu'),            
+    Dense(units=64, activation='relu'),            
+    Dense(units=num_actions, activation='linear'),
+    ### END CODE HERE ### 
+    ])
+​
+# Create the target Q^-Network.
+target_q_network = Sequential([
+    ### START CODE HERE ### 
+    Input(shape=state_size),                       
+    Dense(units=64, activation='relu'),            
+    Dense(units=64, activation='relu'),            
+    Dense(units=num_actions, activation='linear'), 
+    ### END CODE HERE ###
+    ])
+​
+### START CODE HERE ### 
+optimizer = Adam(learning_rate=ALPHA)  
+### END CODE HERE ###
+
+6.2 Experience Replay
+When an agent interacts with the environment, the states, actions, and rewards the agent experiences are sequential by nature. 
+If the agent tries to learn from these consecutive experiences it can run into problems due to the strong correlations between them. 
+To avoid this, we employ a technique known as Experience Replay to generate uncorrelated experiences for training our agent. 
+Experience replay consists of storing the agent's experiences (i.e the states, actions, and rewards the agent receives) in a memory buffer and then sampling a random mini-batch of experiences from the buffer to do the learning. The experience tuples  (𝑆𝑡,𝐴𝑡,𝑅𝑡,𝑆𝑡+1)  will be added to the memory buffer at each time step as the agent interacts with the environment.
+
+For convenience, we will store the experiences as named tuples.
+
+# Store experiences as named tuples.
+experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
+
+8 - Update the Network Weights
+We will use the agent_learn function below to implement lines 12 -14 of the algorithm outlined in Fig 3. The agent_learn function will update the weights of the  𝑄  and target  𝑄̂   networks using a custom training loop. Because we are using a custom training loop we need to retrieve the gradients via a tf.GradientTape instance, and then call optimizer.apply_gradients() to update the weights of our  𝑄 -Network. Note that we are also using the @tf.function decorator to increase performance. Without this decorator our training will take twice as long. If you would like to know more about how to increase performance with @tf.function take a look at the TensorFlow documentation.
+
+The last line of this function updates the weights of the target  𝑄̂  -Network using a soft update. If you want to know how this is implemented in code we encourage you to take a look at the utils.update_target_network function in the utils module.
+
+@tf.function
+def agent_learn(experiences, gamma):
+    """
+    Updates the weights of the Q networks.
+    
+    Args:
+      experiences: (tuple) tuple of ["state", "action", "reward", "next_state", "done"] namedtuples
+      gamma: (float) The discount factor.
+    
+    """
+    
+    # Calculate the loss.
+    with tf.GradientTape() as tape:
+        loss = compute_loss(experiences, gamma, q_network, target_q_network)
+​
+    # Get the gradients of the loss with respect to the weights.
+    gradients = tape.gradient(loss, q_network.trainable_variables)
+    
+    9 - Train the Agent
+We are now ready to train our agent to solve the Lunar Lander environment. In the cell below we will implement the algorithm in Fig 3 line by line (please note that we have included the same algorithm below for easy reference. This will prevent you from scrolling up and down the notebook):
+
+Line 1: We initialize the memory_buffer with a capacity of  𝑁=  MEMORY_SIZE. Notice that we are using a deque as the data structure for our memory_buffer.
+Line 2: We skip this line since we already initialized the q_network in Exercise 1.
+Line 3: We initialize the target_q_network by setting its weights to be equal to those of the q_network.
+Line 4: We start the outer loop. Notice that we have set  𝑀=  num_episodes = 2000. This number is reasonable because the agent should be able to solve the Lunar Lander environment in less than 2000 episodes using this notebook's default parameters.
+Line 5: We use the .reset() method to reset the environment to the initial state and get the initial state.
+Line 6: We start the inner loop. Notice that we have set  𝑇=  max_num_timesteps = 1000. This means that the episode will automatically terminate if the episode hasn't terminated after 1000 time steps.
+Line 7: The agent observes the current state and chooses an action using an  𝜖 -greedy policy. Our agent starts out using a value of  𝜖=  epsilon = 1 which yields an  𝜖 -greedy policy that is equivalent to the equiprobable random policy. 
+
+start = time.time()
+
+num_episodes = 2000
+max_num_timesteps = 1000
+
+total_point_history = []
+
+num_p_av = 100    # number of total points to use for averaging.
+epsilon = 1.0     # initial ε value for ε-greedy policy.
+
+# Create a memory buffer D with capacity N.
+memory_buffer = deque(maxlen=MEMORY_SIZE)
+
+# Set the target network weights equal to the Q-Network weights.
+target_q_network.set_weights(q_network.get_weights())
+
+for i in range(num_episodes):
+    
+    # Reset the environment to the initial state and get the initial state.
+    state = env.reset()
+    total_points = 0
+    
+    for t in range(max_num_timesteps):
+        
+        # From the current state S choose an action A using an ε-greedy policy.
+        state_qn = np.expand_dims(state, axis=0)  # state needs to be the right shape for the q_network.
+        q_values = q_network(state_qn)
+        action = utils.get_action(q_values, epsilon)
+        
+        # Take action A and receive reward R and the next state S'.
+        next_state, reward, done, _ = env.step(action)
+        
+        # Store experience tuple (S,A,R,S') in the memory buffer.
+        # We store the done variable as well for convenience.
+        memory_buffer.append(experience(state, action, reward, next_state, done))
+        
+        # Only update the network every NUM_STEPS_FOR_UPDATE time steps.
+        update = utils.check_update_conditions(t, NUM_STEPS_FOR_UPDATE, memory_buffer)
+        
+        if update:
+            # Sample random mini-batch of experience tuples (S,A,R,S') from D.
+            experiences = utils.get_experiences(memory_buffer)
+            
+            # Set the y targets, perform a gradient descent step,
+            # and update the network weights.
+            agent_learn(experiences, GAMMA)
+        
+        state = next_state.copy()
+        total_points += reward
+        
+        if done:
+            break
+            
+    total_point_history.append(total_points)
+    av_latest_points = np.mean(total_point_history[-num_p_av:])
+    
+    # Update the ε value.
+    epsilon = utils.get_new_eps(epsilon)
+
+    print(f"\rEpisode {i+1} | Total point average of the last {num_p_av} episodes: {av_latest_points:.2f}", end="")
+
+    if (i+1) % num_p_av == 0:
+        print(f"\rEpisode {i+1} | Total point average of the last {num_p_av} episodes: {av_latest_points:.2f}")
+
+    # We will consider that the environment is solved if we get an
+    # average of 200 points in the last 100 episodes.
+    if av_latest_points >= 200.0:
+        print(f"\n\nEnvironment solved in {i+1} episodes!")
+        q_network.save('lunar_lander_model.h5')
+        break
+        
+tot_time = time.time() - start
+
+print(f"\nTotal Runtime: {tot_time:.2f} s ({(tot_time/60):.2f} min)")
+
+# Plot the total point history along with the moving average.
+utils.plot_history(total_point_history)
+    
+    # Update the weights of the q_network.
+    optimizer.apply_gradients(zip(gradients, q_network.trainable_variables))
+​
+    # update the weights of target q_network.
+    utils.update_target_network(q_network, target_q_network)
